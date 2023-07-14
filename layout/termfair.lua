@@ -16,6 +16,8 @@ local termfair  = { name = "termfair" }
 termfair.center = { name = "centerfair" }
 termfair.centermaxwidth = { name = "centermax" }
 termfair.stable = { name = "stablefair" }
+termfair.left23 = { name = "left23" }
+termfair.right23 = { name = "right23" }
 
 local function do_fair(p, orientation)
     local t = p.tag or screen[p.screen].selected_tag
@@ -400,6 +402,270 @@ local function do_fair(p, orientation)
                 wx = wx + width
             end
         end
+    elseif orientation == "left23" then
+        --        (1)                (2)                (3)
+        --   +-+-------+-+      +-------+---+      +---+---+---+
+        --   | |       | |      |       |   |      |       | 2 |
+        --   | |   1   | |  ->  |  1    | 2 | ->   |   1   |---|  ->
+        --   | |       | |      |       |   |      |       | 3 |
+        --   +-+-------+-+      +-------+---+      +---+---+---+
+
+        --        (4)                (5)
+        --   +---+---+---+      +---+---+---+
+        --   |   |   | 3 |      |   | 2 | 4 |
+        --   + 1 + 2 +---+  ->  + 1 +---+---+
+        --   |   |   | 4 |      |   | 3 | 5 |
+        --   +---+---+---+      +---+---+---+
+
+        -- How many vertical columns? Read from nmaster on the tag.
+        local total_x = 3
+        local ncol  = 1
+        local master_x = 2
+        local other_x = total_x - master_x
+
+        -- if #cls < num_x then num_x = tonumber(termfair.centermaxwidth.maxwidth) end
+        local masterWidth = master_x * math.floor(wa.width/total_x)
+        local otherWidth = wa.width - masterWidth
+
+        if #cls == 1 then
+            -- One client, center it
+
+            local offset_x = wa.x + (wa.width - #cls*masterWidth) / 2
+            local g = { y = wa.y }
+            g.width  = masterWidth
+            g.height = wa.height
+            if g.width < 1 then g.width = 1 end
+            if g.height < 1 then g.height = 1 end
+            g.x = offset_x
+            p.geometries[cls[1]] = g
+        elseif #cls <= 3 then
+            -- More clients than the number of columns, let's arrange it!
+            -- Master client deserves a special treatement
+            local g = {}
+            g.width = masterWidth
+            g.height = wa.height
+            if g.width < 1 then g.width = 1 end
+            if g.height < 1 then g.height = 1 end
+            g.x = wa.x
+            g.y = wa.y
+            p.geometries[cls[1]] = g
+
+            -- Treat the other clients
+
+            local remCls = #cls - 1;
+            local wx = g.x + g.width
+            local height = math.floor(wa.height / remCls)
+            for i = 2, #cls do
+                g = {}
+                g.x = wx
+                g.y = wa.y + height * (i - 2)
+                g.height = height
+                g.width = otherWidth
+                if g.width < 1 then g.width = 1 end
+                if g.height < 1 then g.height = 1 end
+                p.geometries[cls[i]] = g
+            end
+        else
+            
+            local g = {}
+            g.width = wa.width - (total_x - 1)*otherWidth
+            g.height = wa.height
+            if g.width < 1 then g.width = 1 end
+            if g.height < 1 then g.height = 1 end
+            g.x = wa.x
+            g.y = wa.y
+            p.geometries[cls[1]] = g
+
+            -- Treat the other clients
+
+            -- Compute distribution of clients among columns
+            local num_y = {}
+            local remaining_clients = #cls-1
+            local ncol_min = math.ceil(remaining_clients/(total_x-1))
+
+            if ncol >= ncol_min then
+                for i = (total_x-1), 1, -1 do
+                    if (remaining_clients-i+1) < ncol then
+                        num_y[i] = remaining_clients-i + 1
+                    else
+                        num_y[i] = ncol
+                    end
+                    remaining_clients = remaining_clients - num_y[i]
+                end
+            else
+                local rem = remaining_clients % (total_x-1)
+                if rem == 0 then
+                    for i = 1, total_x-1 do
+                        num_y[i] = ncol_min
+                    end
+                else
+                    for i = 1, total_x-1 do
+                        num_y[i] = ncol_min - 1
+                    end
+                    for i = 0, rem-1 do
+                        num_y[total_x-1-i] = num_y[total_x-1-i] + 1
+                    end
+                end
+            end
+
+            -- Compute geometry of the other clients
+            local nclient = 2 -- we start with the 2nd client
+            local wx = g.x + g.width
+            for i = 1, (total_x-1) do
+                local height = math.floor(wa.height / num_y[i])
+                local wy = wa.y
+                for _ = 0, (num_y[i]-2) do
+                    g = {}
+                    g.x = wx
+                    g.y = wy
+                    g.height = height
+                    g.width = otherWidth
+                    if g.width < 1 then g.width = 1 end
+                    if g.height < 1 then g.height = 1 end
+                    p.geometries[cls[nclient]] = g
+                    nclient = nclient + 1
+                    wy = wy + height
+                end
+                g = {}
+                g.x = wx
+                g.y = wy
+                g.height = wa.height - (num_y[i] - 1)*height
+                g.width = otherWidth
+                if g.width < 1 then g.width = 1 end
+                if g.height < 1 then g.height = 1 end
+                p.geometries[cls[nclient]] = g
+                nclient = nclient + 1
+                wx = wx + otherWidth
+            end
+        end
+    elseif orientation == "right23" then
+        --        (1)                (2)                (3)
+        --   +-+-------+-+      +-------+---+      +---+---+---+
+        --   | |       | |      |   |       |      | 2 |       |
+        --   | |   1   | |  ->  | 2 |   1   | ->   |---|   1   | ->
+        --   | |       | |      |   |       |      | 3 |       |
+        --   +-+-------+-+      +-------+---+      +---+---+---+
+
+        -- How many vertical columns? Read from nmaster on the tag.
+        local total_x = 3
+        local ncol  = 1
+        local master_x = 2
+        local other_x = total_x - master_x
+
+        -- if #cls < num_x then num_x = tonumber(termfair.centermaxwidth.maxwidth) end
+        local masterWidth = master_x * math.floor(wa.width/total_x)
+        local otherWidth = wa.width - masterWidth
+
+        if #cls == 1 then
+            -- One client, center it
+
+            local offset_x = wa.x + (wa.width - #cls*masterWidth) / 2
+            local g = { y = wa.y }
+            g.width  = masterWidth
+            g.height = wa.height
+            if g.width < 1 then g.width = 1 end
+            if g.height < 1 then g.height = 1 end
+            g.x = offset_x
+            p.geometries[cls[1]] = g
+        elseif #cls <= 3 then
+            -- More clients than the number of columns, let's arrange it!
+            -- Master client deserves a special treatement
+            local g = {}
+            g.width = masterWidth
+            g.height = wa.height
+            if g.width < 1 then g.width = 1 end
+            if g.height < 1 then g.height = 1 end
+            g.x = wa.x + otherWidth
+            g.y = wa.y
+            p.geometries[cls[1]] = g
+
+            -- Treat the other clients
+
+            local remCls = #cls - 1;
+            local height = math.floor(wa.height / remCls)
+            for i = 2, #cls do
+                g = {}
+                g.x = wa.x
+                g.y = wa.y + height * (i - 2)
+                g.height = height
+                g.width = otherWidth
+                if g.width < 1 then g.width = 1 end
+                if g.height < 1 then g.height = 1 end
+                p.geometries[cls[i]] = g
+            end
+        else
+            
+            local g = {}
+            g.width = otherWidth
+            g.height = wa.height
+            if g.width < 1 then g.width = 1 end
+            if g.height < 1 then g.height = 1 end
+            g.x = wa.x + 2 * otherWidth
+            g.y = wa.y
+            p.geometries[cls[1]] = g
+
+            -- Treat the other clients
+
+            -- Compute distribution of clients among columns
+            local num_y = {}
+            local remaining_clients = #cls-1
+            local ncol_min = math.ceil(remaining_clients/(total_x-1))
+
+            if ncol >= ncol_min then
+                for i = (total_x-1), 1, -1 do
+                    if (remaining_clients-i+1) < ncol then
+                        num_y[i] = remaining_clients-i + 1
+                    else
+                        num_y[i] = ncol
+                    end
+                    remaining_clients = remaining_clients - num_y[i]
+                end
+            else
+                local rem = remaining_clients % (total_x-1)
+                if rem == 0 then
+                    for i = 1, total_x-1 do
+                        num_y[i] = ncol_min
+                    end
+                else
+                    for i = 1, total_x-1 do
+                        num_y[i] = ncol_min - 1
+                    end
+                    for i = 0, rem-1 do
+                        num_y[total_x-1-i] = num_y[total_x-1-i] + 1
+                    end
+                end
+            end
+
+            -- Compute geometry of the other clients
+            local nclient = 2 -- we start with the 2nd client
+            local wx = wa.x + otherWidth
+            for i = 1, (total_x-1) do
+                local height = math.floor(wa.height / num_y[i])
+                local wy = wa.y
+                for _ = 0, (num_y[i]-2) do
+                    g = {}
+                    g.x = wx
+                    g.y = wy
+                    g.height = height
+                    g.width = otherWidth
+                    if g.width < 1 then g.width = 1 end
+                    if g.height < 1 then g.height = 1 end
+                    p.geometries[cls[nclient]] = g
+                    nclient = nclient + 1
+                    wy = wy + height
+                end
+                g = {}
+                g.x = wx
+                g.y = wy
+                g.height = wa.height - (num_y[i] - 1)*height
+                g.width = otherWidth
+                if g.width < 1 then g.width = 1 end
+                if g.height < 1 then g.height = 1 end
+                p.geometries[cls[nclient]] = g
+                nclient = nclient + 1
+                wx = wx - otherWidth
+            end
+        end
     end
 end
 
@@ -409,6 +675,14 @@ end
 
 function termfair.centermaxwidth.arrange(p)
     return do_fair(p, "centermaxwidth")
+end
+
+function termfair.left23.arrange(p)
+    return do_fair(p, "left23")
+end
+
+function termfair.right23.arrange(p)
+    return do_fair(p, "right23")
 end
 
 function termfair.stable.arrange(p)
